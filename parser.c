@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <stdint.h>
 
+#define LOG 0
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
@@ -16,66 +17,33 @@ void usage(FILE *file, const char *program){
     program);
 }
 
-bool check_flag(const char *flag){
-    if (strcmp(flag, "-ciff") == 0 || strcmp(flag, "-caff") == 0){
-        return true;
+bool check_extension(const char *file_path) {
+    const char *extension = strrchr(file_path, '.');
+    if (extension == NULL) {
+        return false; // No extension found
     }
-    return false;
+    ++extension;
+    return (strcmp(extension, "ciff") == 0 || strcmp(extension, "caff") == 0);
 }
 
-bool check_extension(const char *file_path){
-    char *file = strdup(file_path);
-    char *token = strtok(file, ".");
-    char *extension = NULL;
-
-    while (token != NULL){
-        extension = token;
-        token = strtok(NULL, ".");
+char* get_file_name(const char* file_path) {
+    char *separator = strrchr(file_path, '/');
+    if (separator == NULL) {
+        separator = (char *)file_path;
     }
-
-    if (extension == NULL){
-        free(file);
-        file = NULL;
-        return false;
+    char *file_name = strdup(++separator);
+    char *ext = strrchr(file_name, '.');
+    if (ext != NULL) {
+        *ext = '\0';
     }
-    assert(extension != NULL);
-
-    if (strcmp(extension, "ciff") == 0 || strcmp(extension, "caff") == 0){
-        free(file);
-        file = NULL;
-        return true;
-    }
-    free(file);
-    file = NULL;
-    return false;
-}
-
-char *get_file_name(const char *file_path){
-    char *file = strdup(file_path);
-    char *token = strtok(file, "/");
-    char *file_name = NULL;
-
-    while (token != NULL){
-        file_name = token;
-        token = strtok(NULL, "/");
-    }
-
-    file_name = strtok(file_name, ".");
     return file_name;
 }
 
 #define ERR_SET "\033[0;31m"
 #define WARN_SET "\033[0;33m"
 #define RESET "\033[0m"
-// TODO: make ana argument that specifies what is read from memory for better error handling
 void read_bytes(FILE *file, void *buff, const size_t buff_cap){
-    if (buff_cap == 0){
-        fprintf(stderr, "%sWARNING%s: an element is not defined in file\n",
-                WARN_SET, RESET);
-        return;
-    }
     assert(buff_cap != 0);
-
     size_t bytes_read = fread(buff, buff_cap, 1, file);
     if (bytes_read != 1) {
         if (ferror(file)) {
@@ -83,13 +51,10 @@ void read_bytes(FILE *file, void *buff, const size_t buff_cap){
                     ERR_SET, RESET, buff_cap, strerror(errno));
             exit(-1);
         } else if (feof(file)) {
-            fprintf(stderr, "%sERROR%s: could not read %zu bytes from file: reached the end of file\n",
-                    ERR_SET, RESET,
-                    buff_cap);
+            fprintf(stderr, "%sERROR%s: could not read %zu bytes from file: end of file\n",
+                    ERR_SET, RESET, buff_cap);
             exit(-1);
         } else {
-            fprintf(stderr, "%sERROR%s: could not read %zu bytes from file: fread returned with %zu\n",
-                    ERR_SET, RESET, buff_cap, bytes_read);
             assert(0 && "unreachable");
         }
     }
@@ -103,7 +68,22 @@ void print_bytes(uint8_t *buff, const size_t buff_cap){
 }
 
 void print_date(uint8_t *buff, const size_t buff_cap){
-    // TODO
+    for (size_t i = 0; i < buff_cap; ++i){
+        if (buff[i] < 10 && i != 0 && i != 1){
+            printf("0%u", buff[i]);
+        } else {
+            printf("%u", buff[i]);
+        }
+
+        if (i == 4){
+            printf(":");
+        } else if (i == 1 || i == 2){
+            printf(".");
+        } else if (i == 3){
+            printf(". ");
+        }
+    }
+    printf("\n");
 }
 
 void print_ascii(uint8_t *buff, const size_t buff_cap){
@@ -137,13 +117,6 @@ uint8_t read_id(FILE *file){
     uint8_t id[S_ID];
     read_bytes(file, id, S_ID);
     assert(id != NULL);
-
-    if (id[0] != 1 && id[0] != 2 && id[0] != 3){
-        fprintf(stderr,
-            "%sERROR%s: file format is not supported {block_id: %u}\n",
-             ERR_SET, RESET, id[0]);
-        exit(-1);
-    }
     return id[0];
 }
 
@@ -160,68 +133,12 @@ size_t _8bytes_size(FILE *file){
 const uint8_t magic_caff[S_MAGIC] = {67, 65, 70, 70};
 // returns the number of animations in the caff
 size_t read_caff_hdr(FILE *file){
+    // MAGIC
     uint8_t f_magic[S_MAGIC];
     read_bytes(file, f_magic, S_MAGIC);
     if (memcmp(magic_caff, f_magic, S_MAGIC) != 0){
         fprintf(stderr,
-            "%sERROR%s: file format is not supported {magic: %c %c %c %c}\n",
-            ERR_SET, RESET,
-            (char)f_magic[0],
-            (char)f_magic[1],
-            (char)f_magic[2],
-            (char)f_magic[3]);
-        exit(-1);
-    }
-
-    /* header length is also predefined
-    so there is no need to use this
-    information, just read it to confirm */
-    const size_t s_header = _8bytes_size(file);
-    assert(s_header == 20);
-
-    /* not capacity but still a size value
-    and still ocupies 8-bytes */
-    const size_t n_anim = _8bytes_size(file);
-    return n_anim;
-}
-
-// TODO: error checking
-#define S_DATE 6
-void read_caff_crd(FILE *file){
-
-    /* Y - year (2 bytes)
-       M - month (1 byte)
-       D - day (1 byte)
-       h - hour (1 byte)
-       m - minute (1 byte2) */
-    uint8_t date[S_DATE];
-    read_bytes(file, date, S_DATE);
-    // printf("date: ");
-    // print_date(date, S_DATE);
-
-    const size_t s_creator = _8bytes_size(file);
-    uint8_t creator[s_creator];
-    read_bytes(file, creator, s_creator);
-    // TODO: error handling in read_bytes, when 0 byte should be read
-     // printf("creator: ");
-     // print_ascii(creator, s_creator);
-}
-
-void create_jpg(const char *file_name, uint8_t *rgb_pixels, size_t s_pixels, size_t width, size_t height){
-    int quality = 90; // set JPEG quality to 90%
-    int stride_in_bytes = 3 * width; // RGB stride is 3 bytes per pixel
-    stbi_write_jpg((char *)file_name, width, height, 3, rgb_pixels, quality);
-}
-#define S_WIDTH 8
-#define S_HEIGHT 8
-#define ESCAPE 10
-const uint8_t magic_ciff[S_MAGIC] = {67, 73, 70, 70};
-void read_ciff(FILE *file, const char *file_name, bool save){
-    uint8_t f_magic[S_MAGIC];
-    read_bytes(file, f_magic, S_MAGIC);
-    if (memcmp(magic_ciff, f_magic, S_MAGIC) != 0){
-        fprintf(stderr,
-                "%sERROR%s: file format is not supported {magic: %c %c %c %c}\n",
+                "%sERROR%s: file has unknown magic in a block: %c %c %c %c\n",
                 ERR_SET, RESET,
                 (char)f_magic[0],
                 (char)f_magic[1],
@@ -230,17 +147,112 @@ void read_ciff(FILE *file, const char *file_name, bool save){
         exit(-1);
     }
 
-    // S_CAP size buffer
+    // SIZE
+    /* header length is also predefined
+    so there is no need to use this
+    information, just read it to confirm */
+    const size_t s_header = _8bytes_size(file);
+    assert(s_header == 20);
+
+    // ANIMATIONS
+    /* not capacity but still a size value
+    and still ocupies 8-bytes */
+    const size_t n_anim = _8bytes_size(file);
+    return n_anim;
+}
+
+#define S_DATE 6
+void read_caff_crd(FILE *file){
+    // DATE
+    /* Y - year (2 bytes)
+       M - month (1 byte)
+       D - day (1 byte)
+       h - hour (1 byte)
+       m - minute (1 byte2) */
+    uint8_t date[S_DATE];
+    read_bytes(file, date, S_DATE);
+#if LOG
+    printf("date: ");
+    print_date(date, S_DATE);
+#endif
+    // CREATOR
+    const size_t s_creator = _8bytes_size(file);
+    if (s_creator == 0){
+        printf("%sWARNING%s: file does not define the creator\n",
+                WARN_SET, RESET);
+    } else {
+        uint8_t creator[s_creator];
+        read_bytes(file, creator, s_creator);
+#if LOG
+        printf("creator: ");
+        print_ascii(creator, s_creator);
+#endif
+    }
+}
+
+void create_jpg(const char *file_name, uint8_t *rgb_pixels, size_t s_pixels, size_t width, size_t height){
+    int quality = 99;
+    int stride_in_bytes = 3 * width;
+    int write = stbi_write_jpg((char *)file_name, width, height, 3, rgb_pixels, quality);
+    if (write == 0) {
+        fprintf(stderr,
+                "%sERROR%s: output file could not be written\n",
+                ERR_SET, RESET);
+        exit(-1);
+    } else if (write == -1) {
+        fprintf(stderr,
+                "%sERROR%s: could not open output file for writing\n",
+                ERR_SET, RESET);
+        exit(-1);
+    } else if (write == -2) {
+        fprintf(stderr,
+                "%sERROR%s: output file is not a JPEG file\n",
+                ERR_SET, RESET);
+        exit(-1);
+    } else if (write == -3) {
+        fprintf(stderr,
+                "%sERROR%s: output file has invalid parameters\n",
+                ERR_SET, RESET);
+        exit(-1);
+    }
+    assert(write == 1);
+#if LOG
+    printf("successfully saved to \"%s\"\n", file_name);
+#endif
+}
+
+#define S_WIDTH 8
+#define S_HEIGHT 8
+#define ESCAPE 10
+const uint8_t magic_ciff[S_MAGIC] = {67, 73, 70, 70};
+void read_ciff(FILE *file, const char *file_name, bool save){
+    // MAGIC
+    uint8_t f_magic[S_MAGIC];
+    read_bytes(file, f_magic, S_MAGIC);
+    if (memcmp(magic_ciff, f_magic, S_MAGIC) != 0){
+        fprintf(stderr,
+                "%sERROR%s: file has unknown magic in a block: %c %c %c %c\n",
+                ERR_SET, RESET,
+                (char)f_magic[0],
+                (char)f_magic[1],
+                (char)f_magic[2],
+                (char)f_magic[3]);
+        exit(-1);
+    }
+
+    // HEADER SIZE
     const size_t s_header = _8bytes_size(file);
 
+    // CONTENT SIZE
     /* 8-byte long integer,
     its value is the size of the image
 	pixels located at the end of the file.
     Its value must be width*heigth*3 */
     size_t s_pixels = _8bytes_size(file);
+    // WIDTH
     size_t s_width = _8bytes_size(file);
+    // HEIGHT
     size_t s_height = _8bytes_size(file);
-
     if (s_pixels != (s_width * s_height * 3)){
         fprintf(stderr,
                 "%sERROR%s: pixel size is not equal to size defined in header\n",
@@ -256,7 +268,7 @@ void read_ciff(FILE *file, const char *file_name, bool save){
                                            - S_WIDTH    // 8-byte width of image
                                            - S_HEIGHT;  // 8-byte height of image
 
-    // caption
+    // CAPTION
     uint8_t t_caption[s_caption_tags];
     size_t iter = 0;
     uint8_t buff[1];
@@ -267,53 +279,68 @@ void read_ciff(FILE *file, const char *file_name, bool save){
         ++iter;
         if (iter == s_caption_tags){
             fprintf(stderr,
-                    "%sERROR%s: file format is not supported: captivate caption please\n",
+                    "%sERROR%s: file caption larger than what header defines\n",
                     ERR_SET, RESET);
             exit(-1);
         }
     }
     // escaped caption
     size_t s_caption = iter + 1;
-    uint8_t caption[s_caption];
-    for (int i = 0; i < s_caption; ++i){
-        caption[i] = t_caption[i];
+    if (iter == 0){
+        printf("%sWARNING%s: file does not define the caption\n",
+                WARN_SET, RESET);
+    } else {
+        uint8_t caption[s_caption];
+        // copy data from temp caption
+        for (int i = 0; i < s_caption; ++i){
+            caption[i] = t_caption[i];
+        }
+#if LOG
+        printf("caption: ");
+        print_ascii(caption, s_caption);
+#endif
     }
-    // printf("caption: ");
-    // print_ascii(caption, s_caption);
 
-    // tags
+    // TAGS
     size_t s_tags = s_caption_tags - s_caption;
-    uint8_t tags[s_tags];
-    if (s_tags != 0){
+    if (s_tags == 0){
+        printf("%sWARNING%s: file does not include any tags\n",
+                WARN_SET, RESET);
+    } else {
+        uint8_t tags[s_tags];
         read_bytes(file, tags, s_tags);
         for (size_t i = 0; i < s_tags; ++i){
             if (tags[i] == ESCAPE){
                 fprintf(stderr,
-                        "%sERROR%s: file contains too many escapes: escapes in tags\n",
+                        "%sERROR%s: file contains escape ASCII in tags\n",
                         ERR_SET, RESET);
                 exit(-1);
             }
         }
-    } else {
-        assert(s_tags == 0);
-        fprintf(stderr, "%sWARNING%s: no tags are added to the file\n",
-                WARN_SET, RESET);
+#if LOG
+        printf("tags: ");
+        print_tags(tags, s_tags);
+#endif
     }
 
-    // printf("tags: ");
-    // print_tags(tags, s_tags);
-
-    uint8_t pixels[s_pixels];
-    read_bytes(file, pixels, s_pixels);
-
-    if (save){ create_jpg(file_name, pixels, s_pixels, s_width, s_height); }
+    // PIXELS
+    if (s_pixels == 0){
+        printf("%sWARNING%s: file is missing the pixel data\n",
+                WARN_SET, RESET);
+    } else {
+        uint8_t pixels[s_pixels];
+        read_bytes(file, pixels, s_pixels);
+        if (save){ create_jpg(file_name, pixels, s_pixels, s_width, s_height); }
+    }
 }
 
 #define D_ANM 8
 void read_caff_anm(FILE *file, const char *file_name, bool save){
+    // DURATION
     uint8_t *duration[D_ANM];
     read_bytes(file, duration, D_ANM);
 
+    // CIFF
     read_ciff(file, file_name, save);
 }
 
@@ -338,8 +365,12 @@ void read_caff(FILE *file, const char *file_name){
     in the header block is the
     number of animations in the CAFF */
     const size_t n_anim = read_caff_hdr(file);
-    // printf("number of animations: %zu\n", n_anim);
+#if LOG
+    printf("number of animations: %zu\n", n_anim);
+    printf("\n");
+#endif
 
+    // ANIMATION + CREDITS blocks
     /* read all blocks from file
     + 1 for the credits block */
     bool save_first = true;
@@ -349,14 +380,20 @@ void read_caff(FILE *file, const char *file_name){
         if (b_id == 2){
             // CREDITS
             read_caff_crd(file);
+#if LOG
+            printf("\n");
+#endif
         } else if (b_id == 3){
             // ANIMATION
             read_caff_anm(file, file_name, save_first);
             save_first = false;
+#if LOG
+            printf("\n");
+#endif
         } else {
             fprintf(stderr,
-                    "%sERROR%s: file contains unknows block type\n",
-                    ERR_SET, RESET);
+                    "%sERROR%s: file has unknown id in a block: %uz\n",
+                    ERR_SET, RESET, b_id);
             exit(-1);
         }
     }
@@ -377,7 +414,7 @@ int main(int argc, char const *argv[])
         exit(-1);
     }
     const char *flag = *argv++;
-    if (!check_flag(flag)){
+    if (!(strcmp(flag, "-ciff") == 0 || strcmp(flag, "-caff") == 0)){
         fprintf(stderr,
             "%sERROR%s: foreign flag \"%s\"\n", ERR_SET, RESET, flag);
         usage(stderr, program);
@@ -440,3 +477,4 @@ int main(int argc, char const *argv[])
 }
 
 // TODO: file_name handling could be simpler
+// TODO: some refactoring so variable name clarity
