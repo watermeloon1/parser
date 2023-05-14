@@ -32,7 +32,7 @@ The format contains a number of blocks in the following format:
 #################
 
 
-The first block of all CAFF files is the CAFF header. It contains the following 
+The first block of all CAFF files is the CAFF header. It contains the following
 parts:
  ____________ ________________________ ________________________
 |            |                        |                        |
