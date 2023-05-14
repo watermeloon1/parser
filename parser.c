@@ -6,7 +6,7 @@
 #include <errno.h>
 #include <stdint.h>
 
-#define LOG 0
+#define LOG 1
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
@@ -96,7 +96,7 @@ void print_ascii(uint8_t *buff, const size_t buff_cap){
 void print_tags(uint8_t *buff, const size_t buff_cap){
     printf("#");
     for (size_t i = 0; i < buff_cap; ++i){
-        if (buff[i] == 0){
+        if (buff[i] == 0 && i != buff_cap - 1){
             printf(" #");
         } else { printf("%c", (char)buff[i]); }
     }
@@ -478,3 +478,4 @@ int main(int argc, char const *argv[])
 
 // TODO: file_name handling could be simpler
 // TODO: some refactoring so variable name clarity
+// TODO: duration logging and logging extras
