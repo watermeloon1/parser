@@ -10,6 +10,10 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
+#define ERR_SET "\033[0;31m"
+#define WARN_SET "\033[0;33m"
+#define RESET "\033[0m"
+
 void usage(FILE *file, const char *program){
     fprintf(file, "Usage: %s [-flag] [path-to-file]\nFlags:\n\
      -ciff  provide a {.ciff} file\n\
@@ -26,23 +30,26 @@ bool check_extension(const char *file_path) {
     return (strcmp(extension, "ciff") == 0 || strcmp(extension, "caff") == 0);
 }
 
-// TODO::
-char* get_file_name(const char* file_path) {
+char *file_name;
+char* _file_name(const char* file_path) {
     char *separator = strrchr(file_path, '/');
     if (separator == NULL) {
         separator = (char *)file_path;
     }
     char *file_name = strdup(++separator);
+    if (file_name == NULL){
+        fprintf(stderr, "%sERROR%s: filename was not provided in the path\n",
+                ERR_SET, RESET);
+        exit(-1);
+    }
     char *ext = strrchr(file_name, '.');
     if (ext != NULL) {
         *ext = '\0';
     }
+    strcat((char *)file_name, ".jpg");
     return file_name;
 }
 
-#define ERR_SET "\033[0;31m"
-#define WARN_SET "\033[0;33m"
-#define RESET "\033[0m"
 void read_bytes(FILE *file, void *buff, const size_t buff_cap){
     assert(buff_cap != 0);
     size_t bytes_read = fread(buff, buff_cap, 1, file);
@@ -59,6 +66,21 @@ void read_bytes(FILE *file, void *buff, const size_t buff_cap){
             assert(0 && "unreachable");
         }
     }
+}
+
+size_t translate_bytes(uint8_t *buff, const size_t buff_cap){
+    uint64_t size = 0;
+    for (int i = 0; i < buff_cap; ++i) {
+        size |= (uint64_t)buff[i] << (i * 8);
+    }
+    return (size_t)size;
+}
+
+size_t _read_bytes(FILE *file, const size_t quantity){
+    uint8_t bytes[quantity];
+    read_bytes(file, bytes, quantity);
+    size_t value = translate_bytes(bytes, quantity);
+    return value;
 }
 
 void print_bytes(uint8_t *buff, const size_t buff_cap){
@@ -102,21 +124,6 @@ void print_tags(uint8_t *buff, const size_t buff_cap){
         } else { printf("%c", (char)buff[i]); }
     }
     printf("\n");
-}
-
-size_t translate_bytes(uint8_t *buff, const size_t buff_cap){
-    uint64_t size = 0;
-    for (int i = 0; i < buff_cap; i++) {
-        size |= (uint64_t)buff[i] << (i * 8);
-    }
-    return (size_t)size;
-}
-
-size_t _read_bytes(FILE *file, const size_t quantity){
-    uint8_t bytes[quantity];
-    read_bytes(file, bytes, quantity);
-    size_t value = translate_bytes(bytes, quantity);
-    return value;
 }
 
 #define MGC 4
@@ -184,10 +191,10 @@ void read_caff_crd(FILE *file){
     }
 }
 
-void create_jpg(const char *file_name, uint8_t *rgb_pixels, size_t s_pixels, size_t width, size_t height){
+void create_jpg(uint8_t *rgb_pixels, size_t s_pixels, size_t width, size_t height){
     int quality = 99;
     int stride_in_bytes = 3 * width;
-    int write = stbi_write_jpg((char *)file_name, width, height, 3, rgb_pixels, quality);
+    int write = stbi_write_jpg(file_name, width, height, 3, rgb_pixels, quality);
     if (write == 0) {
         fprintf(stderr,
                 "%sERROR%s: output file could not be written\n",
@@ -219,7 +226,7 @@ void create_jpg(const char *file_name, uint8_t *rgb_pixels, size_t s_pixels, siz
 #define HGT 8
 #define ESC 10
 const uint8_t magic_ciff[MGC] = {67, 73, 70, 70};
-void read_ciff(FILE *file, const char *file_name, bool save){
+void read_ciff(FILE *file, bool save){
     // MAGIC
     uint8_t magic[MGC];
     read_bytes(file, magic, MGC);
@@ -324,24 +331,24 @@ void read_ciff(FILE *file, const char *file_name, bool save){
     } else {
         uint8_t pixels[s_pixels];
         read_bytes(file, pixels, s_pixels);
-        if (save){ create_jpg(file_name, pixels, s_pixels, s_width, s_height); }
+        if (save){ create_jpg(pixels, s_pixels, s_width, s_height); }
     }
 }
 
 #define DUR 8
-void read_caff_anm(FILE *file, const char *file_name, bool save){
+void read_caff_anm(FILE *file, bool save){
     // DURATION
     size_t duration = _read_bytes(file, DUR);
 # if LOG
     printf("duration: %zu\n", duration);
 #endif
     // CIFF
-    read_ciff(file, file_name, save);
+    read_ciff(file, save);
 }
 
 #define ID 1
 #define SZ 8
-void read_caff(FILE *file, const char *file_name){
+void read_caff(FILE *file){
     // HEADER
     size_t h_id = _read_bytes(file, ID);
     if (h_id != 1){
@@ -381,7 +388,7 @@ void read_caff(FILE *file, const char *file_name){
 #endif
         } else if (b_id == 3){
             // ANIMATION
-            read_caff_anm(file, file_name, save_first);
+            read_caff_anm(file, save_first);
             save_first = false;
 #if LOG
             printf("\n");
@@ -432,7 +439,7 @@ int main(int argc, char const *argv[])
         exit(-1);
     }
 
-    const char *file_name = get_file_name(file_path);
+    file_name = _file_name(file_path);
     if (file_name == NULL){
         fprintf(stderr,
             "%sERROR%s: filename was not provided\n", ERR_SET, RESET);
@@ -440,7 +447,6 @@ int main(int argc, char const *argv[])
         exit(-1);
     }
     assert(file_name != NULL);
-    strcat((char *)file_name, ".jpg");
 
     // check for overflow
     if (*argv != NULL){
@@ -462,14 +468,12 @@ int main(int argc, char const *argv[])
     }
 
     if (strcmp(flag, "-caff") == 0){
-        read_caff(file, file_name);
+        read_caff(file);
     } else if (strcmp(flag, "-ciff") == 0){
-        read_ciff(file, file_name, true);
+        read_ciff(file, true);
     }
 
 #endif
 
     return 0;
 }
-
-// TODO: file_name handling could be simpler
