@@ -26,6 +26,7 @@ bool check_extension(const char *file_path) {
     return (strcmp(extension, "ciff") == 0 || strcmp(extension, "caff") == 0);
 }
 
+// TODO::
 char* get_file_name(const char* file_path) {
     char *separator = strrchr(file_path, '/');
     if (separator == NULL) {
@@ -103,47 +104,36 @@ void print_tags(uint8_t *buff, const size_t buff_cap){
     printf("\n");
 }
 
-size_t capsize(uint8_t *cap){
+size_t translate_bytes(uint8_t *buff; const size_t buff_cap){
     uint64_t size = 0;
-    for (int i = 0; i < 8; i++) {
-        size |= (uint64_t)cap[i] << (i * 8);
+    for (int i = 0; i < buff_cap; i++) {
+        size |= (uint64_t)buff[i] << (i * 8);
     }
     return (size_t)size;
 }
 
-#define S_ID 1
-// reads the next byte and returns the value of it
-uint8_t read_id(FILE *file){
-    uint8_t id[S_ID];
-    read_bytes(file, id, S_ID);
-    assert(id != NULL);
-    return id[0];
+size_t _read_bytes(FILE *file, const size_t quantity){
+    uint8_t bytes[quantity];
+    read_bytes(file, bytes, quantity);
+    size_t value = translate_bytes(bytes, quantity);
 }
 
-#define S_CAP 8
-size_t _8bytes_size(FILE *file){
-    uint8_t buff[S_CAP];
-    read_bytes(file, buff, S_CAP);
-    size_t size = capsize(buff);
-    return size;
-}
-
-#define S_ANM 8
-#define S_MAGIC 4
-const uint8_t magic_caff[S_MAGIC] = {67, 65, 70, 70};
-// returns the number of animations in the caff
+#define MGC 4
+#define CAP 8
+#define ANM 8
+const uint8_t magic_caff[MGC] = {67, 65, 70, 70};
 size_t read_caff_hdr(FILE *file){
     // MAGIC
-    uint8_t f_magic[S_MAGIC];
-    read_bytes(file, f_magic, S_MAGIC);
-    if (memcmp(magic_caff, f_magic, S_MAGIC) != 0){
+    uint8_t magic[MGC];
+    read_bytes(file, magic, MGC);
+    if (memcmp(magic_caff, magic, MGC) != 0){
         fprintf(stderr,
                 "%sERROR%s: file has unknown magic in a block: %c %c %c %c\n",
                 ERR_SET, RESET,
-                (char)f_magic[0],
-                (char)f_magic[1],
-                (char)f_magic[2],
-                (char)f_magic[3]);
+                (char)magic[0],
+                (char)magic[1],
+                (char)magic[2],
+                (char)magic[3]);
         exit(-1);
     }
 
@@ -151,17 +141,20 @@ size_t read_caff_hdr(FILE *file){
     /* header length is also predefined
     so there is no need to use this
     information, just read it to confirm */
-    const size_t s_header = _8bytes_size(file);
-    assert(s_header == 20);
+    const size_t size = _read_bytes(file, CAP);
+    assert(size == 20);
 
     // ANIMATIONS
     /* not capacity but still a size value
     and still ocupies 8-bytes */
-    const size_t n_anim = _8bytes_size(file);
-    return n_anim;
+    const size_t anim = _read_bytes(file, ANM);
+#if LOG
+    printf("number of animations: %zu\n", n_anim);
+#endif
+    return anim;
 }
 
-#define S_DATE 6
+#define DTE 6
 void read_caff_crd(FILE *file){
     // DATE
     /* Y - year (2 bytes)
@@ -169,14 +162,14 @@ void read_caff_crd(FILE *file){
        D - day (1 byte)
        h - hour (1 byte)
        m - minute (1 byte2) */
-    uint8_t date[S_DATE];
-    read_bytes(file, date, S_DATE);
+    uint8_t date[DTE];
+    read_bytes(file, date, DTE);
 #if LOG
     printf("date: ");
-    print_date(date, S_DATE);
+    print_date(date, DTE);
 #endif
     // CREATOR
-    const size_t s_creator = _8bytes_size(file);
+    const size_t s_creator = _read_bytes(file, CAP);
     if (s_creator == 0){
         printf("%sWARNING%s: file does not define the creator\n",
                 WARN_SET, RESET);
@@ -221,38 +214,39 @@ void create_jpg(const char *file_name, uint8_t *rgb_pixels, size_t s_pixels, siz
 #endif
 }
 
-#define S_WIDTH 8
-#define S_HEIGHT 8
-#define ESCAPE 10
-const uint8_t magic_ciff[S_MAGIC] = {67, 73, 70, 70};
+#define WDT 8
+#define HGT 8
+#define ESC 10
+const uint8_t magic_ciff[MGC] = {67, 73, 70, 70};
 void read_ciff(FILE *file, const char *file_name, bool save){
     // MAGIC
-    uint8_t f_magic[S_MAGIC];
-    read_bytes(file, f_magic, S_MAGIC);
-    if (memcmp(magic_ciff, f_magic, S_MAGIC) != 0){
+    uint8_t magic[MGC];
+    read_bytes(file, magic, MGC);
+    if (memcmp(magic_ciff, magic, MGC) != 0){
         fprintf(stderr,
                 "%sERROR%s: file has unknown magic in a block: %c %c %c %c\n",
                 ERR_SET, RESET,
-                (char)f_magic[0],
-                (char)f_magic[1],
-                (char)f_magic[2],
-                (char)f_magic[3]);
+                (char)magic[0],
+                (char)magic[1],
+                (char)magic[2],
+                (char)magic[3]);
         exit(-1);
     }
 
     // HEADER SIZE
-    const size_t s_header = _8bytes_size(file);
+    const size_t s_header = _read_bytes(file, CAP);
 
-    // CONTENT SIZE
     /* 8-byte long integer,
     its value is the size of the image
 	pixels located at the end of the file.
     Its value must be width*heigth*3 */
-    size_t s_pixels = _8bytes_size(file);
+    // CONTENT SIZE
+    size_t s_pixels = _read_bytes(file, CAP);
     // WIDTH
-    size_t s_width = _8bytes_size(file);
+    size_t s_width = _read_bytes(file, WDT);
     // HEIGHT
-    size_t s_height = _8bytes_size(file);
+    size_t s_height = _read_bytes(file, HGT);
+
     if (s_pixels != (s_width * s_height * 3)){
         fprintf(stderr,
                 "%sERROR%s: pixel size is not equal to size defined in header\n",
@@ -262,11 +256,11 @@ void read_ciff(FILE *file, const char *file_name, bool save){
     assert(s_pixels == (s_width * s_height * 3));
 
     // bytes for caption and tags
-    const size_t s_caption_tags = s_header - S_MAGIC    // 4-byte magic
-                                           - S_CAP      // 8-byte header size
-                                           - S_CAP      // 8-byte content size
-                                           - S_WIDTH    // 8-byte width of image
-                                           - S_HEIGHT;  // 8-byte height of image
+    const size_t s_caption_tags = s_header - MGC    // 4-byte magic
+                                           - CAP      // 8-byte header size
+                                           - CAP      // 8-byte content size
+                                           - WDT    // 8-byte width of image
+                                           - HGT;  // 8-byte height of image
 
     // CAPTION
     uint8_t t_caption[s_caption_tags];
@@ -274,9 +268,8 @@ void read_ciff(FILE *file, const char *file_name, bool save){
     uint8_t buff[1];
     read_bytes(file, buff, 1);
     while (buff[0] != ESCAPE) {
-        t_caption[iter] = buff[0];
+        t_caption[iter++] = buff[0];
         read_bytes(file, buff, 1);
-        ++iter;
         if (iter == s_caption_tags){
             fprintf(stderr,
                     "%sERROR%s: file caption larger than what header defines\n",
@@ -334,19 +327,20 @@ void read_ciff(FILE *file, const char *file_name, bool save){
     }
 }
 
-#define D_ANM 8
+#define DUR 8
 void read_caff_anm(FILE *file, const char *file_name, bool save){
     // DURATION
-    uint8_t *duration[D_ANM];
-    read_bytes(file, duration, D_ANM);
-
+    size_t duration = _read_bytes(file, DUR);
+# if LOG
+    printf("duration: %s\n", duration);
+#endif
     // CIFF
     read_ciff(file, file_name, save);
 }
 
 void read_caff(FILE *file, const char *file_name){
     // HEADER
-    uint8_t h_id = read_id(file);
+    size_t h_id = _read_bytes(file, 1);
     if (h_id != 1){
         fprintf(stderr,
                 "%sERROR%s: file does not start with a header\n",
@@ -358,15 +352,14 @@ void read_caff(FILE *file, const char *file_name){
     /* cap is no needed for hdr
     because all chunks lengths
     are predefined in the format */
-    const size_t h_length = _8bytes_size(file);
+    const size_t h_length = _read_bytes(file, 8);
     assert(h_length == 20);
 
     /* the only valuable information
     in the header block is the
     number of animations in the CAFF */
-    const size_t n_anim = read_caff_hdr(file);
+    const size_t anim = read_caff_hdr(file);
 #if LOG
-    printf("number of animations: %zu\n", n_anim);
     printf("\n");
 #endif
 
@@ -374,7 +367,7 @@ void read_caff(FILE *file, const char *file_name){
     /* read all blocks from file
     + 1 for the credits block */
     bool save_first = true;
-    for (size_t i = 0; i < n_anim + 1; ++i){
+    for (size_t i = 0; i < anim + 1; ++i){
         uint8_t b_id = read_id(file);
         size_t b_size = _8bytes_size(file);
         if (b_id == 2){
@@ -477,5 +470,3 @@ int main(int argc, char const *argv[])
 }
 
 // TODO: file_name handling could be simpler
-// TODO: some refactoring so variable name clarity
-// TODO: duration logging and logging extras
