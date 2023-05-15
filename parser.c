@@ -104,7 +104,7 @@ void print_tags(uint8_t *buff, const size_t buff_cap){
     printf("\n");
 }
 
-size_t translate_bytes(uint8_t *buff; const size_t buff_cap){
+size_t translate_bytes(uint8_t *buff, const size_t buff_cap){
     uint64_t size = 0;
     for (int i = 0; i < buff_cap; i++) {
         size |= (uint64_t)buff[i] << (i * 8);
@@ -116,6 +116,7 @@ size_t _read_bytes(FILE *file, const size_t quantity){
     uint8_t bytes[quantity];
     read_bytes(file, bytes, quantity);
     size_t value = translate_bytes(bytes, quantity);
+    return value;
 }
 
 #define MGC 4
@@ -149,7 +150,7 @@ size_t read_caff_hdr(FILE *file){
     and still ocupies 8-bytes */
     const size_t anim = _read_bytes(file, ANM);
 #if LOG
-    printf("number of animations: %zu\n", n_anim);
+    printf("number of animations: %zu\n", anim);
 #endif
     return anim;
 }
@@ -267,7 +268,7 @@ void read_ciff(FILE *file, const char *file_name, bool save){
     size_t iter = 0;
     uint8_t buff[1];
     read_bytes(file, buff, 1);
-    while (buff[0] != ESCAPE) {
+    while (buff[0] != ESC) {
         t_caption[iter++] = buff[0];
         read_bytes(file, buff, 1);
         if (iter == s_caption_tags){
@@ -303,7 +304,7 @@ void read_ciff(FILE *file, const char *file_name, bool save){
         uint8_t tags[s_tags];
         read_bytes(file, tags, s_tags);
         for (size_t i = 0; i < s_tags; ++i){
-            if (tags[i] == ESCAPE){
+            if (tags[i] == ESC){
                 fprintf(stderr,
                         "%sERROR%s: file contains escape ASCII in tags\n",
                         ERR_SET, RESET);
@@ -332,15 +333,17 @@ void read_caff_anm(FILE *file, const char *file_name, bool save){
     // DURATION
     size_t duration = _read_bytes(file, DUR);
 # if LOG
-    printf("duration: %s\n", duration);
+    printf("duration: %zu\n", duration);
 #endif
     // CIFF
     read_ciff(file, file_name, save);
 }
 
+#define ID 1
+#define SZ 8
 void read_caff(FILE *file, const char *file_name){
     // HEADER
-    size_t h_id = _read_bytes(file, 1);
+    size_t h_id = _read_bytes(file, ID);
     if (h_id != 1){
         fprintf(stderr,
                 "%sERROR%s: file does not start with a header\n",
@@ -352,7 +355,7 @@ void read_caff(FILE *file, const char *file_name){
     /* cap is no needed for hdr
     because all chunks lengths
     are predefined in the format */
-    const size_t h_length = _read_bytes(file, 8);
+    const size_t h_length = _read_bytes(file, SZ);
     assert(h_length == 20);
 
     /* the only valuable information
@@ -368,8 +371,8 @@ void read_caff(FILE *file, const char *file_name){
     + 1 for the credits block */
     bool save_first = true;
     for (size_t i = 0; i < anim + 1; ++i){
-        uint8_t b_id = read_id(file);
-        size_t b_size = _8bytes_size(file);
+        size_t b_id = _read_bytes(file, ID);
+        size_t b_size = _read_bytes(file, SZ);
         if (b_id == 2){
             // CREDITS
             read_caff_crd(file);
@@ -385,7 +388,7 @@ void read_caff(FILE *file, const char *file_name){
 #endif
         } else {
             fprintf(stderr,
-                    "%sERROR%s: file has unknown id in a block: %uz\n",
+                    "%sERROR%s: file has unknown id in a block: %zu\n",
                     ERR_SET, RESET, b_id);
             exit(-1);
         }
