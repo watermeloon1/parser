@@ -477,3 +477,5 @@ int main(int argc, char const *argv[])
 
     return 0;
 }
+
+// TODO: check for file size, so no extra information in file
