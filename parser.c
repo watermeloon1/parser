@@ -19,7 +19,7 @@ void usage(FILE *file, const char *program){
      -ciff  provide a {.ciff} file\n\
      -caff  provide a {.caff} file \n",
     program);
-}
+} 
 
 bool check_extension(const char *file_path) {
     const char *extension = strrchr(file_path, '.');
@@ -65,6 +65,16 @@ void read_bytes_to_buffer(FILE *file, void *buffer, const size_t buffer_capacity
         } else {
             assert(0 && "unreachable");
         }
+    }
+}
+
+void check_end_of_file(FILE *file) {
+    uint8_t buffer[1];
+    size_t byte = fread(buffer, 1, 1, file);
+    if (!feof(file)) {
+        fprintf(stderr, "%sERROR%s: file contains additional coded information\n",
+                ERR_SET, RESET);
+        exit(-1);     
     }
 }
 
@@ -263,7 +273,7 @@ void read_ciff(FILE *file, bool save){
     }
     assert(pixel_size == (width_size * height_size * 3));
 
-    // bytes for caption and tags
+       // bytes for caption and tags
     const size_t caption_tags_size = header_size - MGC    // 4-byte magic
                                                  - CAP      // 8-byte header size
                                                  - CAP      // 8-byte content size
@@ -469,9 +479,13 @@ int main(int argc, char const *argv[])
 
     if (strcmp(flag, "-caff") == 0){
         read_caff(file);
+        check_end_of_file(file);
     } else if (strcmp(flag, "-ciff") == 0){
         read_ciff(file, true);
+        check_end_of_file(file);
     }
+
+    fclose(file);
 
 #endif
 
