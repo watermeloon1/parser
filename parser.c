@@ -34,9 +34,9 @@ char *g_file_name;
 void set_g_file_name(const char* file_path) {
     char *separator = strrchr(file_path, '/');
     if (separator == NULL) {
-        separator = (char *)file_path;
-    }
-    char *file_name = strdup(++separator);
+        separator = (char*)file_path;
+    } else { ++separator; }
+    char *file_name = strdup(separator);
     if (file_name == NULL){
         fprintf(stderr, "%sERROR%s: filename was not provided in the path\n",
                 ERR_SET, RESET);
@@ -273,12 +273,12 @@ void read_ciff(FILE *file, bool save){
     }
     assert(pixel_size == (width_size * height_size * 3));
 
-       // bytes for caption and tags
+    // bytes for caption and tags
     const size_t caption_tags_size = header_size - MGC    // 4-byte magic
-                                                 - CAP      // 8-byte header size
-                                                 - CAP      // 8-byte content size
+                                                 - CAP    // 8-byte header size
+                                                 - CAP    // 8-byte content size
                                                  - WDT    // 8-byte width of image
-                                                 - HGT;  // 8-byte height of image
+                                                 - HGT;   // 8-byte height of image
 
     // CAPTION
     uint8_t caption_temp[caption_tags_size];
@@ -479,17 +479,13 @@ int main(int argc, char const *argv[])
 
     if (strcmp(flag, "-caff") == 0){
         read_caff(file);
-        check_end_of_file(file);
     } else if (strcmp(flag, "-ciff") == 0){
         read_ciff(file, true);
-        check_end_of_file(file);
     }
-
+    
+    check_end_of_file(file);
     fclose(file);
-
 #endif
 
     return 0;
 }
-
-// TODO: check for file size, so no extra information in file
